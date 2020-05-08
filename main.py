@@ -69,11 +69,26 @@ def build_argparser():
 
 
 def connect_mqtt():
-    ### TODO: Connect to the MQTT client ###
-    client = None
-
+    #Connect to the MQTT client ###
+    client = mqtt.Client()
+    client.connect(MQTT_HOST, MQTT_PORT, MQTT_KEEPALIVE_INTERVAL)
     return client
 
+def process_outputs(frame, outputs, width, height, threshold):
+    
+    count = 0
+    for box in outputs[0][0]:
+        conf = box[2]
+        if conf >= threshold:
+            count += 1
+            xmin = int(box[3] * width)
+            ymin = int(box[4] * height)
+            xmax = int(box[5] * width)
+            ymax = int(box[6] * height)
+            cv2.rectangle(frame, (xmin, ymin), (xmax, ymax), (0, 255, 0), 2)
+   
+    #cv2.putText(frame, str(count), (30, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), thickness=2)
+    return frame, count
 
 def infer_on_stream(args, client):
     """
@@ -84,37 +99,103 @@ def infer_on_stream(args, client):
     :param client: MQTT client
     :return: None
     """
+    #A flag to check if image or not
+    single_image_mode = False
+    
     # Initialise the class
     infer_network = Network()
     # Set Probability threshold for detections
     prob_threshold = args.prob_threshold
 
-    ### TODO: Load the model through `infer_network` ###
+    # Load the model through `infer_network` ###
+    infer_network.load_model(model = args.model , device = args.device, cpu_extension = args.cpu_extension)
 
-    ### TODO: Handle the input stream ###
+    #Handle the input stream ###
+    if args.input == 'CAM':
+        stream = 0
+    elif args.input.endswith('.jpg') or args.input.endswith('.png'):
+        single_input_image = True
+        stream = args.input
+    else:
+        stream = args.input
+    
+    capture = cv2.VideoCapture(stream)
 
-    ### TODO: Loop until stream is over ###
+    width = int(capture.get(3))
+    height = int(capture.get(4))
 
-        ### TODO: Read from the video capture ###
+    model_input_shape = infer_network.get_input_shape()
 
-        ### TODO: Pre-process the image as needed ###
+    #Initializing necessary variables for calculations
+    total_people = 0
+    people_in_last_frame = 0
+    start_time = time.time()
+    duration = None
+    people_in_frame = 0
+    thres = float(args.prob_threshold)
+    
+    #Loop until stream is over ###
+    while capture.isOpened():
 
-        ### TODO: Start asynchronous inference for specified request ###
+        #Read from the video capture ###
+        flag, frame = capture.read()
 
-        ### TODO: Wait for the result ###
+        if not flag:
+            break
+        
+        #Needed with cv2.imshow() method
+        key_pressed = cv2.waitKey(60)
 
-            ### TODO: Get the results of the inference request ###
+        #Pre-process the image as needed ###
+        processed_frame = cv2.resize(frame, (model_input_shape[3], model_input_shape[2]))
+        processed_frame = processed_frame.transpose((2,0,1))
+        processed_frame = processed_frame.reshape(1,*processed_frame.shape)
 
-            ### TODO: Extract any desired stats from the results ###
+        #Start asynchronous inference for specified request ###
+        executable_net = infer_network.exec_net(image = processed_frame, request_id = 0)
+       
+        # Wait for the result ###
+        if infer_network.wait(request_id = 0) == 0:
+        
+            #Get the results of the inference request ###
+            outputs = infer_network.get_output(request_id = 0)
 
-            ### TODO: Calculate and send relevant information on ###
+            
+            #Extract any desired stats from the results ###
+            frame, people_in_frame = process_outputs(frame, outputs, width, height, thres)
+            #cv2.imwrite('output',out_frame)
+            current_time = time.time()
+            cv2.putText(frame, 'Inference Time: ' + "%.2f" % (current_time - start_time), (30,30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,255,0), 2)
+
+            #cv2.imshow('Output', out_frame) '''Testing line'''
+
+            #Calculate and send relevant information on ###
+            if people_in_frame > people_in_last_frame:
+                total_people += (people_in_frame - people_in_last_frame)
+                new_people_time = time.time()
+
+            if people_in_frame < people_in_last_frame:
+                duration = time.time() - new_people_time
+                client.publish("person/duration", json.dumps({"duration": duration}))
+
             ### current_count, total_count and duration to the MQTT server ###
             ### Topic "person": keys of "count" and "total" ###
+            client.publish("person", json.dumps({"count":people_in_frame, "total": total_people}))
             ### Topic "person/duration": key of "duration" ###
+           
+        
+            people_in_last_frame = people_in_frame
+        
+        if key_pressed == 27:
+           break
 
-        ### TODO: Send the frame to the FFMPEG server ###
+        #Send the frame to the FFMPEG server ###
+        sys.stdout.buffer.write(frame)
+        sys.stdout.flush()
 
-        ### TODO: Write an output image if `single_image_mode` ###
+        #Write an output image if `single_image_mode` ###
+        if single_image_mode:
+            cv2.imwrite('out.jpg', frame)
 
 
 def main():
