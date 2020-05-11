@@ -47,8 +47,7 @@ class Network:
 
         model_xml = model
         model_weights = model.split('.')[0] + ".bin"
-        print(model_xml)
-        print(model_weights)
+
         #Load the model ###
         self.plugin = IECore()
         self.network = IENetwork(model = model_xml, weights = model_weights)

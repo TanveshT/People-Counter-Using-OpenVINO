@@ -33,13 +33,14 @@ import paho.mqtt.client as mqtt
 from argparse import ArgumentParser
 from inference import Network
 
+import numpy as np
+
 # MQTT server environment variables
 HOSTNAME = socket.gethostname()
 IPADDRESS = socket.gethostbyname(HOSTNAME)
 MQTT_HOST = IPADDRESS
 MQTT_PORT = 3001
 MQTT_KEEPALIVE_INTERVAL = 60
-
 
 def build_argparser():
     """
@@ -76,7 +77,16 @@ def connect_mqtt():
 
 def process_outputs(frame, outputs, width, height, threshold):
     
+    manhDX = 0
+    manhDY = 0
     count = 0
+    
+    frameMidX = width//2
+    frameMidY = height//2
+    
+    midX = 0
+    midY = 0
+    
     for box in outputs[0][0]:
         conf = box[2]
         if conf >= threshold:
@@ -87,8 +97,23 @@ def process_outputs(frame, outputs, width, height, threshold):
             ymax = int(box[6] * height)
             cv2.rectangle(frame, (xmin, ymin), (xmax, ymax), (0, 255, 0), 2)
    
-    #cv2.putText(frame, str(count), (30, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), thickness=2)
-    return frame, count
+            midX = (xmax + xmin)//2
+            midY = (ymax + ymin)//2
+       
+    flag = False
+    
+    euclid_d = (((384 - midX)**2) + ((216 - midY)**2)) ** 0.5
+    
+    
+    if midX != 0 or midY != 0:
+        if euclid_d > 100:
+            flag = True
+
+            
+    cv2.putText(frame, str(euclid_d), (30, 150), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), thickness=1)
+        #cv2.putText(frame, str(width) + " " + str(height), (40, 190), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), thickness=2)
+        
+    return frame, count, flag
 
 def infer_on_stream(args, client):
     """
@@ -99,6 +124,8 @@ def infer_on_stream(args, client):
     :param client: MQTT client
     :return: None
     """
+    
+    frame_count = 0 
     #A flag to check if image or not
     single_image_mode = False
     
@@ -133,12 +160,26 @@ def infer_on_stream(args, client):
     duration = None
     people_in_frame = 0
     thres = float(args.prob_threshold)
+    current_frame_request_id = 0
+    next_frame_request_id = 1
+    prev_flag = False
+    
+    if not capture.isOpened():
+        exit()
+    
+    _, current_frame = capture.read()
+    
+    processed_frame = cv2.resize(current_frame, (model_input_shape[3], model_input_shape[2]))
+    processed_frame = processed_frame.transpose((2,0,1))
+    processed_frame = processed_frame.reshape(1,*processed_frame.shape)
+    
+    executable_net = infer_network.exec_net(image = processed_frame, request_id = current_frame_request_id)
     
     #Loop until stream is over ###
     while capture.isOpened():
 
         #Read from the video capture ###
-        flag, frame = capture.read()
+        flag, next_frame = capture.read()
 
         if not flag:
             break
@@ -147,32 +188,35 @@ def infer_on_stream(args, client):
         key_pressed = cv2.waitKey(60)
 
         #Pre-process the image as needed ###
-        processed_frame = cv2.resize(frame, (model_input_shape[3], model_input_shape[2]))
+        processed_frame = cv2.resize(next_frame, (model_input_shape[3], model_input_shape[2]))
         processed_frame = processed_frame.transpose((2,0,1))
         processed_frame = processed_frame.reshape(1,*processed_frame.shape)
 
         #Start asynchronous inference for specified request ###
-        executable_net = infer_network.exec_net(image = processed_frame, request_id = 0)
+        executable_net = infer_network.exec_net(image = processed_frame, request_id = next_frame_request_id)
        
         # Wait for the result ###
-        if infer_network.wait(request_id = 0) == 0:
+        if infer_network.wait(request_id = current_frame_request_id) == 0:
         
             #Get the results of the inference request ###
-            outputs = infer_network.get_output(request_id = 0)
+            outputs = infer_network.get_output(request_id = current_frame_request_id)
 
             
             #Extract any desired stats from the results ###
-            frame, people_in_frame = process_outputs(frame, outputs, width, height, thres)
+            frame, people_in_frame, cur_flag = process_outputs(current_frame, outputs, width, height, thres)
+            
             #cv2.imwrite('output',out_frame)
             current_time = time.time()
             cv2.putText(frame, 'Inference Time: ' + "%.2f" % (current_time - start_time), (30,30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,255,0), 2)
+            cv2.putText(frame, str(frame_count), (30,210), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,255,0), 2)
 
-            #cv2.imshow('Output', out_frame) '''Testing line'''
+            #cv2.imshow('Output', out_frame) 
 
             #Calculate and send relevant information on ###
-            if people_in_frame > people_in_last_frame:
+            if people_in_frame > people_in_last_frame and not prev_flag:
                 total_people += (people_in_frame - people_in_last_frame)
                 new_people_time = time.time()
+                client.publish("person", json.dumps({"total": total_people}))
 
             if people_in_frame < people_in_last_frame:
                 duration = time.time() - new_people_time
@@ -180,15 +224,20 @@ def infer_on_stream(args, client):
 
             ### current_count, total_count and duration to the MQTT server ###
             ### Topic "person": keys of "count" and "total" ###
-            client.publish("person", json.dumps({"count":people_in_frame, "total": total_people}))
+            client.publish("person", json.dumps({"count":people_in_frame}))
             ### Topic "person/duration": key of "duration" ###
            
         
             people_in_last_frame = people_in_frame
+            prev_flag = cur_flag
+        
+            current_frame = next_frame
+            current_frame_request_id, next_frame_request_id = next_frame_request_id, current_frame_request_id
         
         if key_pressed == 27:
            break
 
+        frame_count += 1
         #Send the frame to the FFMPEG server ###
         sys.stdout.buffer.write(frame)
         sys.stdout.flush()

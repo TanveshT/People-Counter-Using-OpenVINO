@@ -1,4 +1,10 @@
 # Project Write-Up
+```python /opt/intel/openvino/deployment_tools/model_optimizer/mo_tf.py --input_model ssd_mobilenet_v2_coco_2018_03_29/frozen_inference_graph.pb --tensorflow_use_custom_operations_config /opt/intel/openvino/deployment_tools/model_optimizer/extensions/front/tf/ssd_v2_support.json --tensorflow_object_detection_api_pipeline_config ssd_mobilenet_v2_coco_2018_03_29/pipeline.config --reverse_input_channels```
+
+[ SUCCESS ] Generated IR model.
+[ SUCCESS ] XML file: /home/workspace/./frozen_inference_graph.xml
+[ SUCCESS ] BIN file: /home/workspace/./frozen_inference_graph.bin
+[ SUCCESS ] Total execution time: 69.63 seconds. 
 
 ## Explaining Custom Layers
 
@@ -44,14 +50,14 @@ In investigating potential people counter models, I tried each of the following 
 - Model 1: SSD_RESNET50_V1_FPN_COCO
   - http://download.tensorflow.org/models/object_detection/ssd_resnet50_v1_fpn_shared_box_predictor_640x640_coco14_sync_2018_07_03.tar.gz
   - I converted the model to an Intermediate Representation with the following arguments </br>
-  ```python /opt/intel/openvino/deployment_tools/model_optimizer/mo_tf.py --input_model ssd_resnet50_v1_fpn_shared_box_predictor_640x640_coco14_sync_2018_07_03/frozen_inference_graph.pb ssd_resnet50_v1_fpn_shared_box_predictor_640x640_coco14_sync_2018_07_03/pipeline.config --tensorflow_object_detection_api_pipeline_config --tensorflow_use_custom_operations_config /opt/intel/openvino/deployment_tools/model_optimizer/extensions/front/tf/ssd_v2_support.json --reverse_input_channel```
+  ```python /opt/intel/openvino/deployment_tools/model_optimizer/mo_tf.py --input_model ssd_resnet50_v1_fpn_shared_box_predictor_640x640_coco14_sync_2018_07_03/frozen_inference_graph.pb --tensorflow_object_detection_api_pipeline_config ssd_resnet50_v1_fpn_shared_box_predictor_640x640_coco14_sync_2018_07_03/pipeline.config  --tensorflow_use_custom_operations_config /opt/intel/openvino/deployment_tools/model_optimizer/extensions/front/tf/ssd_v2_support.json --reverse_input_channel```
   - The model was insufficient for the app because it was taking a lot of time while inferencing on the frame.
 
   
 - Model 2: FASTER RCNN INCEPTION v2
   - http://download.tensorflow.org/models/object_detection/faster_rcnn_inception_v2_coco_2018_01_28.tar.gz
   - I converted the model to an Intermediate Representation with the following arguments</br>
-  ```python /opt/intel/openvino/deployment_tools/model_optimizer/mo_tf.py --input_model faster_rcnn_inception_v2_coco_2018_01_28/frozen_inference_graph.pb faster_rcnn_inception_v2_coco_2018_01_28/pipeline.config --tensorflow_object_detection_api_pipeline_config --tensorflow_use_custom_operations_config /opt/intel/openvino/deployment_tools/model_optimizer/extensions/front/tf/ssd_v2_support.json --reverse_input_channel```
+  ```python /opt/intel/openvino/deployment_tools/model_optimizer/mo_tf.py --input_model faster_rcnn_inception_v2_coco_2018_01_28/frozen_inference_graph.pb --tensorflow_object_detection_api_pipeline_config faster_rcnn_inception_v2_coco_2018_01_28/pipeline.config  --tensorflow_use_custom_operations_config /opt/intel/openvino/deployment_tools/model_optimizer/extensions/front/tf/faster_rcnn_support.json --reverse_input_channel```
   - This model also faced a similar issue liek the ssd resnet50 model that it was taking a lot of time while inferencing a frame.
 
 
