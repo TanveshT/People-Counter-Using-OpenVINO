@@ -159,7 +159,7 @@ def infer_on_stream(args, client):
     start_time = time.time()
     duration = None
     people_in_frame = 0
-    thres = float(args.prob_threshold)
+    thres = 0.45
     current_frame_request_id = 0
     next_frame_request_id = 1
     prev_flag = False
